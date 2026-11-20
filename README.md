@@ -1,68 +1,182 @@
-# LanPower
+<p align="center">
+  <img src="assets/lanpower-icon.png" alt="LanPower Logo" width="104" />
+</p>
 
-Lightweight local Wake-on-LAN, Sleep, Reboot, and Shutdown controller for Linux & Windows with a Material 3 Android app and zero external agent dependencies.
+<h1 align="center">LanPower</h1>
 
-LanPower provides a unified, cross-platform power management agent designed for home labs, office workstations, and personal machines across your local network.
+<p align="center">
+  <strong>Lightweight local power controller for Linux &amp; Windows — paired with a Material 3 Android app.</strong><br />
+  Wake, Sleep, Reboot, and Shut down machines across your LAN with a single tap, using only native OS tools and zero third-party agent packages.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20Android-0ea5e9?style=flat-square" alt="Platforms" />
+  <img src="https://img.shields.io/github/v/release/Mohammask/LanPower?style=flat-square&color=6366f1&label=Release" alt="Latest Release" />
+  <img src="https://img.shields.io/badge/License-MIT-10b981?style=flat-square" alt="MIT License" />
+  <img src="https://img.shields.io/badge/3rd--Party%20Packages-None-334155?style=flat-square" alt="No Third-Party Packages" />
+</p>
+
+<p align="center">
+  <a href="#screenshots">Screenshots</a> •
+  <a href="#features">Features</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#security-architecture">Security</a> •
+  <a href="#api-reference">API</a> •
+  <a href="#troubleshooting--faq">FAQ</a>
+</p>
 
 ---
 
-## Quick Install
+## Screenshots
 
-### Linux (Ubuntu, Debian, Fedora, Arch, CentOS)
-Run with root privileges:
+<p align="center">
+  <img src="assets/screenshot-dashboard.jpg" alt="LanPower Dashboard" width="270" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="assets/screenshot-setup.jpg" alt="LanPower Setup Screen" width="270" />
+</p>
+
+<p align="center">
+  <sub><b>Left:</b> Live LAN dashboard with 2×2 power controls &nbsp;|&nbsp; <b>Right:</b> Built-in Linux &amp; Windows setup guide</sub>
+</p>
+
+---
+
+## Features
+
+- **Native OS Agents (No Third-Party Packages):**
+  - **Linux:** Uses only Python 3's standard library and `systemd` (with optional `ethtool` for Wake-on-LAN persistence — no `pip` packages or external frameworks).
+  - **Windows 10 / 11:** Pure built-in PowerShell, .NET, and Task Scheduler (no extra runtimes required).
+- **Full Power Control:** Wake-on-LAN (`Magic Packet`), Sleep / Suspend, Reboot, and Shutdown.
+- **Smart Interactive Installer:** Distinguishes physical vs. virtual network adapters, verifies port availability, configures persistent Wake-on-LAN (`ethtool` + NetworkManager on Linux; driver/WMI settings + Fast Startup check on Windows), and includes a clean uninstaller.
+- **Material 3 Android Companion:** Built with Kotlin & Jetpack Compose featuring automatic LAN scanning, pull-to-refresh status polling, confirmation dialogs, and PIN lockout feedback.
+
+---
+
+## Quick Start
+
+### 1. Install the Agent on Your PC / Server
+
+#### Linux (Ubuntu, Debian, Fedora, Arch, openSUSE)
+Requires `systemd` and `python3` (the installer can install `python3` and optional `ethtool` via your distro's package manager). Run as `root`:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Mohammask/LanPower/main/linux/lanpower.sh | sudo bash
 ```
 
-### Windows 10 / 11
-Run from an elevated (Administrator) PowerShell prompt:
+#### Windows 10 / 11
+Run in an **Administrator** PowerShell window:
 ```powershell
 irm https://raw.githubusercontent.com/Mohammask/LanPower/main/windows/lanpower.ps1 | iex
 ```
 
-Both interactive scripts provide a CLI manager with options to install as a persistent system service, change or remove authentication PINs, inspect live adapter and WoL status, and cleanly uninstall.
+Both scripts launch an interactive CLI manager where you can install the background service, set or remove a PIN, inspect live status & WoL state, or completely uninstall.
+
+### 2. Install the Android App
+
+Download the latest signed APK from **[GitHub Releases](https://github.com/Mohammask/LanPower/releases)** and install it on your Android device.
+
+### 3. Scan & Control
+
+Open **LanPower**, tap **Scan LAN or Add Device**, enter your PIN if configured, and manage your machines immediately.
 
 ---
 
 ## Security Architecture
 
-LanPower is built with safety, privacy, and defensive posture in mind:
+LanPower is designed for safe operation on private local networks without unnecessary attack surface:
 
-- **LAN-Only Firewall Rules:** The installer automatically configures UFW / firewalld on Linux and Windows Defender Firewall to restrict agent port access strictly to your local network subnet.
-- **Optional PIN Authentication:** Protect actions with a custom PIN. Comparison uses constant-time validation (`hmac.compare_digest` in Python, bitwise XOR in PowerShell) to mitigate timing attacks.
-- **Brute-Force Rate Limiting:** 5 consecutive failed authentication attempts automatically lock out the originating IP address for 60 seconds (HTTP `429 Too Many Requests` with `retry_after` countdown header).
-- **Hardened Configuration Permissions:** The configuration storing the token is locked to file mode `0600` (directory `0700`) on Linux, and secured with strict SYSTEM and Administrator-only ACLs via `icacls` on Windows.
-- **Trusted LAN Scope:** The agent uses lightweight local HTTP intended exclusively for trusted home or private local area networks. Do not expose the agent port to the public internet.
-
----
-
-## API Endpoints
-
-All actions respond with JSON payloads. When PIN authentication is enabled, pass your token in the `X-Auth-Token` request header.
-
-| Method | Endpoint | Description | Sample Response |
-|---|---|---|---|
-| `GET` | `/status` | Agent health, hostname, MAC address, interface, and auth requirement | `{"service":"lan-power-agent","status":"online","hostname":"PC","mac":"...","auth_required":true}` |
-| `POST` | `/verify` | Validate the configured PIN without performing any power action | `{"ok":true,"authorized":true}` |
-| `POST` | `/sleep` | Put the host machine into sleep / suspend mode | `{"ok":true,"action":"sleep"}` |
-| `POST` | `/reboot` | Safely reboot the operating system | `{"ok":true,"action":"reboot"}` |
-| `POST` | `/poweroff` | Safely shut down the operating system | `{"ok":true,"action":"poweroff"}` |
+| Layer | Implementation |
+| --- | --- |
+| **LAN-Only Firewall** | Automatically scopes rules to your local subnet — UFW / `firewalld` on Linux (tracked and pruned on port change or uninstall) and Windows Defender Firewall (`LocalSubnet`). |
+| **Constant-Time PIN Auth** | Optional `X-Auth-Token` verification using `hmac.compare_digest` (Linux) and constant-time bitwise XOR comparison (Windows). |
+| **Brute-Force Protection** | 5 consecutive failed PIN attempts lock out the source IP for **60 seconds** (`HTTP 429` with `retry_after` in JSON) while preserving active lockouts during cleanup. |
+| **Locked File Permissions** | Config files holding the PIN are written atomically with mode `0600` (directory `0700`) via environment variables on Linux, and restricted strictly to `SYSTEM` & `Administrators` via universal-SID `icacls` ACLs on Windows. |
+| **Local Scope** | Uses lightweight local HTTP intended **strictly for trusted private LANs**. Never port-forward or expose the agent port to the public internet. |
 
 ---
 
-## Android App
+## API Reference
 
-The companion LanPower Android application (Material 3) allows you to discover, manage, wake, sleep, reboot, and turn off your networked machines with a tap.
+All endpoints speak JSON. When a PIN is configured, send it in the `X-Auth-Token` HTTP header.
 
-- Source code available in `android/`
-- Prebuilt APKs available under [GitHub Releases](https://github.com/Mohammask/LanPower/releases)
+| Method | Endpoint | Auth | Description | Success Response (`200 OK`) |
+| --- | --- | :---: | --- | --- |
+| `GET` | `/status` | No | Health check, hostname, MAC, interface, and auth flag | `{"service":"lan-power-agent","version":"1.0","status":"online","hostname":"PC","mac":"AA:BB:CC:11:22:33","interface":"eth0","auth_required":true}` |
+| `POST` | `/verify` | Yes | Verify PIN without triggering a power action | `{"ok":true,"authorized":true}` |
+| `POST` | `/sleep` | Yes | Suspend / sleep the host (`systemctl suspend` / `SetSuspendState`) | `{"ok":true,"action":"sleep"}` |
+| `POST` | `/reboot` | Yes | Reboot the operating system | `{"ok":true,"action":"reboot"}` |
+| `POST` | `/poweroff` | Yes | Shut down the operating system | `{"ok":true,"action":"poweroff"}` |
+
+**Error Status Codes:**
+- `401 Unauthorized` — Missing or invalid `X-Auth-Token` (`{"ok":false,"error":"unauthorized"}`)
+- `429 Too Many Requests` — IP temporarily locked after 5 failed attempts (`{"ok":false,"error":"too_many_attempts","retry_after":60}`)
+- `404 Not Found` — Unknown endpoint
+
+---
+
+## Repository Structure
+
+```text
+LanPower/
+├── linux/
+│   └── lanpower.sh       # Linux installer, CLI manager & embedded Python 3 agent
+├── windows/
+│   └── lanpower.ps1      # Windows installer, CLI manager & embedded PowerShell agent
+├── android/              # Kotlin / Jetpack Compose Android app (com.mohammask.lanpower)
+├── assets/               # App icon and README screenshots
+└── LICENSE               # MIT License
+```
+
+### Building the Android App from Source
+
+Requires **Android Studio** (or **JDK 17+** with the **Android SDK** configured via `ANDROID_HOME` or `android/local.properties`):
+
+```bash
+cd android
+./gradlew assembleDebug        # Linux / macOS
+.\gradlew.bat assembleDebug    # Windows
+```
+
+> Release builds automatically use `android/keystore.properties` if present (gitignored) and fall back cleanly for local development clones.
+
+---
+
+## Troubleshooting & FAQ
+
+<details>
+<summary><b>Wake-on-LAN doesn't wake my PC from full Shutdown (S5)</b></summary>
+
+1. Enable **Wake-on-LAN / Power On by PCI-E** in your motherboard BIOS/UEFI, and disable **ErP / Deep Sleep** if enabled.
+2. On Windows, ensure **Fast Startup** is disabled (the installer checks and offers to disable this automatically).
+3. USB Wi-Fi/Ethernet adapters typically support waking from **Sleep (S3)** rather than full **Shutdown (S5)** due to motherboard USB power limits.
+
+</details>
+
+<details>
+<summary><b>Windows only turns off the monitors instead of entering Sleep</b></summary>
+
+This happens when an active Windows process or driver holds a power request (such as media playback, downloads, or a USB device immediately waking the system). Run the following in an elevated PowerShell prompt to identify the culprit:
+```powershell
+powercfg /requests
+powercfg /lastwake
+```
+
+</details>
+
+<details>
+<summary><b>How do I uninstall the agent completely?</b></summary>
+
+Re-run the installer script and choose **Option `4` (Uninstall)**. It cleanly stops and removes the background service/scheduled task, deletes all configuration files, and removes the firewall rules created by LanPower.
+
+</details>
 
 ---
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is open source and licensed under the [MIT License](LICENSE).
 
 ---
 
-Made with ❤️ by [Mohammask](https://github.com/Mohammask)
+<p align="center">
+  Made with ❤️ by <a href="https://github.com/Mohammask">Mohammask</a>
+</p>

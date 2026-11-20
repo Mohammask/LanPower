@@ -11,3 +11,21 @@ ehthumbs.db
 
 # Logs and temporary files
 *.log
+
+# Android & Gradle build files
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/.idea/
+android/local.properties
+android/*.iml
+android/keystore.properties
+*.jks
+*.keystore
+*.apk
+*.aab
+
+# Ensure Gradle Wrapper jar is tracked
+!android/gradle/wrapper/gradle-wrapper.jar
+!gradle-wrapper.jar
