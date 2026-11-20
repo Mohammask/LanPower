@@ -29,15 +29,9 @@
 
 ## Screenshots
 
-<p align="center">
-  <img src="assets/screenshot-dashboard.jpg" alt="LanPower Dashboard" width="270" />
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="assets/screenshot-setup.jpg" alt="LanPower Setup Screen" width="270" />
-</p>
-
-<p align="center">
-  <sub><b>Left:</b> Live LAN dashboard with 2×2 power controls &nbsp;|&nbsp; <b>Right:</b> Built-in Linux &amp; Windows setup guide</sub>
-</p>
+| Live LAN Dashboard | Built-in Setup Guide |
+| :---: | :---: |
+| <img src="assets/screenshot-dashboard.jpg" alt="LanPower Dashboard" width="260" /> | <img src="assets/screenshot-setup.jpg" alt="LanPower Setup Screen" width="260" /> |
 
 ---
 
@@ -121,7 +115,7 @@ LanPower/
 │   └── lanpower.sh       # Linux installer, CLI manager & embedded Python 3 agent
 ├── windows/
 │   └── lanpower.ps1      # Windows installer, CLI manager & embedded PowerShell agent
-├── android/              # Kotlin / Jetpack Compose Android app (com.mohammask.lanpower)
+├── android/              # Kotlin / Jetpack Compose Android app
 ├── assets/               # App icon and README screenshots
 └── LICENSE               # MIT License
 ```
