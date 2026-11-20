@@ -29,9 +29,20 @@
 
 ## Screenshots
 
-| Live LAN Dashboard | Built-in Setup Guide |
-| :---: | :---: |
-| <img src="assets/screenshot-dashboard.jpg" alt="LanPower Dashboard" width="260" /> | <img src="assets/screenshot-setup.jpg" alt="LanPower Setup Screen" width="260" /> |
+<table>
+  <tr>
+    <th align="center" width="50%">Live LAN Dashboard</th>
+    <th align="center" width="50%">Built-in Setup Guide</th>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="assets/screenshot-dashboard.jpg" alt="LanPower Dashboard" width="260" />
+    </td>
+    <td align="center" width="50%">
+      <img src="assets/screenshot-setup.jpg" alt="LanPower Setup Screen" width="260" />
+    </td>
+  </tr>
+</table>
 
 ---
 
