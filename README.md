@@ -93,7 +93,7 @@ LanPower is designed for safe operation on private local networks without unnece
 
 | Layer | Implementation |
 | --- | --- |
-| **LAN-Only Firewall** | When an active firewall is detected (UFW / `firewalld` on Linux, Windows Defender Firewall on Windows), the installer scopes rules strictly to private LAN subnets (`RFC1918`, `100.64.0.0/10`, link-local) and skips auto-opening public IP subnets. Linux rules are tracked and cleanly pruned on port change or uninstall. |
+| **LAN-Only Firewall** | **Linux (UFW / `firewalld`):** scopes rules strictly to private LAN subnets (`RFC1918`, `100.64.0.0/10`, link-local) and skips public IP subnets (rules are tracked and cleanly pruned on port change or uninstall).<br />**Windows (Windows Defender Firewall):** restricts access using `LocalSubnet` on the `Private` network profile (and detects `Public` networks during setup, offering to switch them to `Private`). |
 | **Constant-Time PIN Auth** | Optional `X-Auth-Token` verification using `hmac.compare_digest` (Linux) and constant-time bitwise XOR comparison (Windows). Requires 4–64 printable ASCII characters. Without a PIN, any device on the LAN can send power commands; the PIN travels in cleartext over local HTTP (see FAQ below). |
 | **Brute-Force Protection** | 5 consecutive failed PIN attempts lock out the source IP for **60 seconds** (`HTTP 429` with `retry_after` in JSON) while preserving active lockouts during cleanup. |
 | **Browser CSRF Protection** | `POST` requests containing a browser `Origin` header are rejected with `HTTP 403` (`browser_requests_not_allowed`), blocking malicious web pages from triggering local power actions even when no PIN is configured. |
@@ -168,6 +168,17 @@ This happens when an active Windows process or driver holds a power request (suc
 powercfg /requests
 powercfg /lastwake
 ```
+
+</details>
+
+<details>
+<summary><b>Android app shows Windows PC as "Offline" even when the agent is running</b></summary>
+
+Windows 11 defaults many Wi-Fi networks to the **Public** profile, which causes Windows Defender Firewall to block inbound LAN traffic and marks the PC as **Offline** in the Android app:
+
+1. Open **Settings → Network & internet → Wi-Fi** (or **Ethernet**).
+2. Click your connected network and change the **Network profile type** from **Public** to **Private**.
+3. Alternatively, re-run `windows/lanpower.ps1` (Option `1`), which detects `Public` profiles automatically and offers to switch them for you.
 
 </details>
 

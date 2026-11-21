@@ -382,6 +382,7 @@ is_private_lan_subnet() {
 configure_firewall() {
   local _iface="$1" _port="$2"
   local _key="" _name="" _subnets="" _s _zone _added=0
+  local _private="" _dropped="" _nl=$'\n'
 
   if fw_ufw_active; then
     _key="ufw"; _name="UFW"
@@ -391,6 +392,17 @@ configure_firewall() {
   fi
 
   _subnets=$(get_iface_subnets "$_iface")
+  for _s in $_subnets; do
+    if is_private_lan_subnet "$_s"; then
+      _private="${_private:+$_private$_nl}$_s"
+    else
+      _dropped="${_dropped:+$_dropped }$_s"
+    fi
+  done
+  _subnets="$_private"
+  if [ -n "$_dropped" ]; then
+    warn "Ignoring non-private subnet(s): $_dropped (no automatic firewall rule will be created for them)."
+  fi
 
   # Drop rules recorded by earlier runs that no longer match (old port, other subnet, other firewall).
   fw_prune_recorded "${_key:-none}" "$_port" "$_subnets"
@@ -400,14 +412,15 @@ configure_firewall() {
     return 0
   fi
 
+  if [ -z "$_subnets" ]; then
+    FW_SUMMARY="Skipped (no private LAN subnet on $_iface) - allow $_port/tcp from your LAN manually"
+    return 0
+  fi
+
   warn "$_name firewall is active. Port $_port/tcp must be allowed from your LAN."
   info "LAN subnet(s): $(printf '%s' "$_subnets" | tr '\n' ' ')"
   if confirm_yes "Allow TCP port $_port from the LAN subnet(s) only through $_name now?"; then
     for _s in $_subnets; do
-      if ! is_private_lan_subnet "$_s"; then
-        warn "Subnet $_s is not a private LAN subnet. Skipping automatic firewall rule."
-        continue
-      fi
       if fw_rule_add "$_key" "$_s" "$_port"; then
         fw_record "$_key" "$_s" "$_port"
         _added=$((_added + 1))

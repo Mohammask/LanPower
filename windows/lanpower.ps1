@@ -51,6 +51,12 @@ function Test-SafeInstallDir {
     return ($ownerSid -in @('S-1-5-18', 'S-1-5-32-544'))
 }
 
+function Get-AdapterNetProfile {
+    param([int]$InterfaceIndex)
+    if ($InterfaceIndex -le 0) { return $null }
+    return (Get-NetConnectionProfile -InterfaceIndex $InterfaceIndex -ErrorAction SilentlyContinue | Select-Object -First 1)
+}
+
 function Protect-InstallDir {
     if (-not (Test-Path $InstallDir)) {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
@@ -837,6 +843,23 @@ function Option-Install {
         Write-Warn "Could not add Windows Firewall rule automatically. Allow TCP port $port manually."
     }
 
+    $netProf = Get-AdapterNetProfile $selectedAdapter.InterfaceIndex
+    if ($null -ne $netProf -and $netProf.NetworkCategory -eq 'Public') {
+        Write-Warn "The network '$($netProf.Name)' is currently set to 'Public'. Windows Defender Firewall blocks LanPower requests on Public networks."
+        if (Confirm-Yes "Do you want to switch this network to 'Private' now?") {
+            try {
+                Set-NetConnectionProfile -InterfaceIndex $selectedAdapter.InterfaceIndex -NetworkCategory Private -ErrorAction Stop
+                Write-Ok "Network profile switched to Private."
+            }
+            catch {
+                Write-Warn "Could not switch network profile automatically ($($_.Exception.Message)). Set it to Private in Windows Settings > Network & internet."
+            }
+        }
+        else {
+            Write-Warn "The Android app will show this PC as Offline until the network is switched to Private."
+        }
+    }
+
     # 8. Start Agent & Verify Live HTTP Response (with retry loop)
     Start-ScheduledTask -TaskName $TaskName
     if (-not (Wait-AgentReady -port $port)) {
@@ -949,6 +972,15 @@ function Option-Status {
     $typeLbl = if ($nic) { (Get-AdapterInfo $nic).Label } else { "Unknown" }
     $fastBoot = if (Test-FastStartupActive) { "Active (may block WoL after Start Menu shutdown)" } else { "Disabled (WoL friendly)" }
 
+    $netProf = if ($nic) { Get-AdapterNetProfile $nic.InterfaceIndex } else { $null }
+    $profileLabel = if ($null -eq $netProf) {
+        "Unknown"
+    } elseif ($netProf.NetworkCategory -eq 'Public') {
+        "Public (Warning: firewall blocks LAN on Public - switch to Private)"
+    } else {
+        "$($netProf.NetworkCategory)"
+    }
+
     $wolMagic = "Unknown"
     if ($nic) {
         try {
@@ -961,6 +993,7 @@ function Option-Status {
     Write-Host " Agent Status : $running"
     Write-Host " Hostname     : $env:COMPUTERNAME"
     Write-Host " Adapter      : $($cfg.interface) [$typeLbl] ($ip)"
+    Write-Host " Net Profile  : $profileLabel"
     Write-Host " MAC Address  : $($cfg.mac)"
     Write-Host " API Port     : $($cfg.port)"
     Write-Host " PIN Auth     : $pinLabel"
