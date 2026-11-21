@@ -7,20 +7,20 @@
 # Made with <3 by Mohammask - https://github.com/Mohammask/LanPower
 # ==========================================================
 
-$InstallDir   = "C:\ProgramData\LanPower"
-$AgentScript  = "$InstallDir\lan-power-agent.ps1"
-$ConfigFile   = "$InstallDir\config.json"
-$LogFile      = "$InstallDir\agent.log"
-$TaskName     = "LanPowerAgent"
+$InstallDir = "C:\ProgramData\LanPower"
+$AgentScript = "$InstallDir\lan-power-agent.ps1"
+$ConfigFile = "$InstallDir\config.json"
+$LogFile = "$InstallDir\agent.log"
+$TaskName = "LanPowerAgent"
 $FirewallRule = "LanPower Agent"
 
-function Write-Info($msg)    { Write-Host "[INFO] $msg" -ForegroundColor Cyan }
-function Write-Ok($msg)      { Write-Host "[OK] $msg" -ForegroundColor Green }
-function Write-Warn($msg)    { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
-function Write-Err($msg)     { Write-Host "[ERROR] $msg" -ForegroundColor Red }
+function Write-Info($msg) { Write-Host "[INFO] $msg" -ForegroundColor Cyan }
+function Write-Ok($msg) { Write-Host "[OK] $msg" -ForegroundColor Green }
+function Write-Warn($msg) { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
+function Write-Err($msg) { Write-Host "[ERROR] $msg" -ForegroundColor Red }
 
 function Test-IsAdmin {
-    $identity  = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
@@ -40,6 +40,17 @@ function Test-Installed {
     return ((Test-Path $AgentScript) -and (Test-Path $ConfigFile) -and ($null -ne $task))
 }
 
+function Test-SafeInstallDir {
+    param([string]$Path)
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if ($null -eq $item) { return $true }
+    if (-not $item.PSIsContainer -or ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        return $false
+    }
+    $ownerSid = (Get-Acl -LiteralPath $Path).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+    return ($ownerSid -in @('S-1-5-18', 'S-1-5-32-544'))
+}
+
 function Protect-InstallDir {
     if (-not (Test-Path $InstallDir)) {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
@@ -56,7 +67,8 @@ function Protect-InstallDir {
         Get-ChildItem -Path $InstallDir -Force -ErrorAction SilentlyContinue | ForEach-Object {
             & $icacls $_.FullName /reset /C /Q | Out-Null
         }
-    } catch {
+    }
+    catch {
         Write-Warn "Could not tighten ACL permissions on '$InstallDir': $($_.Exception.Message)"
     }
 }
@@ -65,7 +77,8 @@ function Get-Config {
     if (-not (Test-Path $ConfigFile)) { return $null }
     try {
         return (Get-Content -Path $ConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json)
-    } catch {
+    }
+    catch {
         return $null
     }
 }
@@ -84,7 +97,8 @@ function Test-PortFree($port) {
     try {
         $listeners = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
         return -not ($listeners | Where-Object { $_.Port -eq [int]$port })
-    } catch {
+    }
+    catch {
         return $true
     }
 }
@@ -93,7 +107,7 @@ function Stop-AgentCleanly {
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 300
     $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-             Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like "*$AgentScript*" }
+    Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like "*$AgentScript*" }
     foreach ($p in $procs) {
         Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
     }
@@ -102,7 +116,7 @@ function Stop-AgentCleanly {
 
 function Test-AgentRunning {
     $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-             Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like "*$AgentScript*" }
+    Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like "*$AgentScript*" }
     return ($null -ne $procs)
 }
 
@@ -112,7 +126,8 @@ function Wait-AgentReady([int]$port, [int]$maxAttempts = 6) {
         try {
             $resp = Invoke-RestMethod -Uri "http://127.0.0.1:$port/status" -TimeoutSec 2 -ErrorAction Stop
             if ($resp.service -eq "lan-power-agent") { return $true }
-        } catch {}
+        }
+        catch {}
     }
     return $false
 }
@@ -120,21 +135,23 @@ function Wait-AgentReady([int]$port, [int]$maxAttempts = 6) {
 function Get-DefaultAdapter {
     try {
         $route = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
-                 Sort-Object { $_.RouteMetric + $_.InterfaceMetric } | Select-Object -First 1
+        Sort-Object { $_.RouteMetric + $_.InterfaceMetric } | Select-Object -First 1
         if ($route) {
             return (Get-NetAdapter -InterfaceIndex $route.ifIndex -ErrorAction SilentlyContinue)
         }
-    } catch {}
+    }
+    catch {}
     return (Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1)
 }
 
 function Get-AdapterIPv4($ifIndex) {
     try {
         $ip = Get-NetIPAddress -InterfaceIndex $ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-              Where-Object { $_.IPAddress -notlike "169.254.*" -and $_.IPAddress -ne "127.0.0.1" } |
-              Select-Object -First 1
+        Where-Object { $_.IPAddress -notlike "169.254.*" -and $_.IPAddress -ne "127.0.0.1" } |
+        Select-Object -First 1
         if ($ip) { return $ip.IPAddress }
-    } catch {}
+    }
+    catch {}
     return "unknown"
 }
 
@@ -144,14 +161,14 @@ function Format-Mac($rawMac) {
 }
 
 function Get-AdapterInfo($adapter) {
-    $desc  = [string]$adapter.InterfaceDescription
-    $phys  = [string]$adapter.PhysicalMediaType
+    $desc = [string]$adapter.InterfaceDescription
+    $phys = [string]$adapter.PhysicalMediaType
     $media = [string]$adapter.MediaType
-    $pnp   = [string]$adapter.PnPDeviceID
+    $pnp = [string]$adapter.PnPDeviceID
 
     $isVirtual = ($adapter.Virtual -eq $true) -or ($desc -match 'Virtual|Hyper-V|VMware|TAP|TUN|WireGuard|ZeroTier|Tailscale|VPN|Loopback')
-    $isWifi    = ($phys -match '802\.11|Wireless') -or ($media -match '802\.11|Wireless') -or ($desc -match 'Wi-?Fi|Wireless|802\.11')
-    $isUsb     = ($pnp -like 'USB\*') -or ($desc -match '\bUSB\b')
+    $isWifi = ($phys -match '802\.11|Wireless') -or ($media -match '802\.11|Wireless') -or ($desc -match 'Wi-?Fi|Wireless|802\.11')
+    $isUsb = ($pnp -like 'USB\*') -or ($desc -match '\bUSB\b')
 
     $tags = @()
     if ($isVirtual) { $tags += "Virtual" }
@@ -169,33 +186,36 @@ function Get-AdapterInfo($adapter) {
 
 function Test-AdapterWakeCapability($adapter) {
     $supported = $false
-    $pmState   = "Unsupported"
+    $pmState = "Unsupported"
 
     try {
         $pm = Get-NetAdapterPowerManagement -Name $adapter.Name -ErrorAction SilentlyContinue
         if ($pm -and $pm.WakeOnMagicPacket -and ($pm.WakeOnMagicPacket -ne "Unsupported")) {
             $supported = $true
-            $pmState   = [string]$pm.WakeOnMagicPacket
+            $pmState = [string]$pm.WakeOnMagicPacket
         }
-    } catch {}
+    }
+    catch {}
 
     if (-not $supported) {
         try {
             $adv = Get-NetAdapterAdvancedProperty -Name $adapter.Name -ErrorAction SilentlyContinue |
-                   Where-Object {
-                       $_.RegistryKeyword -eq "*WakeOnMagicPacket" -or
-                       $_.DisplayName -match "Wake on Magic Packet"
-                   }
+            Where-Object {
+                $_.RegistryKeyword -eq "*WakeOnMagicPacket" -or
+                $_.DisplayName -match "Wake on Magic Packet"
+            }
             if ($adv) { $supported = $true; $pmState = "Driver-Supported" }
-        } catch {}
+        }
+        catch {}
     }
 
     if (-not $supported -and -not [string]::IsNullOrWhiteSpace($adapter.PnPDeviceID)) {
         try {
             $wmi = Get-CimInstance -Namespace root\wmi -ClassName MSPower_DeviceWakeEnable -ErrorAction SilentlyContinue |
-                   Where-Object { $_.InstanceName -like "$($adapter.PnPDeviceID)*" }
+            Where-Object { $_.InstanceName -like "$($adapter.PnPDeviceID)*" }
             if ($wmi) { $supported = $true; $pmState = "WMI-Supported" }
-        } catch {}
+        }
+        catch {}
     }
 
     return [PSCustomObject]@{
@@ -206,7 +226,7 @@ function Test-AdapterWakeCapability($adapter) {
 
 function Test-FastStartupActive {
     try {
-        $powerCtrl    = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Power" -ErrorAction SilentlyContinue
+        $powerCtrl = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Power" -ErrorAction SilentlyContinue
         $hiberEnabled = $powerCtrl.HibernateEnabled
 
         if ($null -eq $hiberEnabled) {
@@ -217,7 +237,8 @@ function Test-FastStartupActive {
 
         $smPower = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power" -ErrorAction SilentlyContinue
         return ($smPower.HiberbootEnabled -eq 1)
-    } catch {
+    }
+    catch {
         return $false
     }
 }
@@ -439,6 +460,11 @@ try {
                     continue
                 }
 
+                if ($null -ne $req.Headers["Origin"]) {
+                    Send-JsonResponse $res 403 ([ordered]@{ ok = $false; error = "browser_requests_not_allowed" })
+                    continue
+                }
+
                 $clientIp = $req.RemoteEndPoint.Address.ToString()
                 if (-not [string]::IsNullOrEmpty($Token)) {
                     $retryAfter = Get-LockoutRemaining $clientIp
@@ -536,73 +562,86 @@ function Enable-WindowsWoL($adapter) {
         if ($pm -and $pm.WakeOnMagicPacket -and ($pm.WakeOnMagicPacket -ne "Unsupported")) {
             if ($pm.WakeOnMagicPacket -eq "Enabled") {
                 $wolConfigured = $true
-            } else {
+            }
+            else {
                 try {
                     Enable-NetAdapterPowerManagement -Name $adapter.Name -ErrorAction SilentlyContinue | Out-Null
                     Set-NetAdapterPowerManagement -Name $adapter.Name -WakeOnMagicPacket Enabled -ErrorAction Stop | Out-Null
                     $wolConfigured = $true
-                } catch {}
+                }
+                catch {}
             }
             if ($pm.WakeOnPattern -eq "Enabled") {
                 try {
                     Set-NetAdapterPowerManagement -Name $adapter.Name -WakeOnPattern Disabled -ErrorAction Stop | Out-Null
-                } catch {}
+                }
+                catch {}
             }
         }
-    } catch {}
+    }
+    catch {}
 
     # 2. WMI Power Management checkboxes ("Allow this device to wake" + "Only allow a magic packet")
     if (-not [string]::IsNullOrWhiteSpace($adapter.PnPDeviceID)) {
         $pnpPrefix = "$($adapter.PnPDeviceID)*"
         try {
             $wakeObj = Get-CimInstance -Namespace root\wmi -ClassName MSPower_DeviceWakeEnable -ErrorAction Stop |
-                       Where-Object { $_.InstanceName -like $pnpPrefix }
+            Where-Object { $_.InstanceName -like $pnpPrefix }
             foreach ($obj in $wakeObj) {
                 if ($obj.Enable -eq $true) {
                     $wolConfigured = $true
-                } else {
+                }
+                else {
                     try {
                         Set-CimInstance -InputObject $obj -Property @{ Enable = $true } -ErrorAction Stop | Out-Null
                         $wolConfigured = $true
-                    } catch {}
+                    }
+                    catch {}
                 }
             }
-        } catch {}
+        }
+        catch {}
 
         try {
             $magicOnlyObj = Get-CimInstance -Namespace root\wmi -ClassName MSNdis_DeviceWakeOnMagicPacketOnly -ErrorAction Stop |
-                            Where-Object { $_.InstanceName -like $pnpPrefix }
+            Where-Object { $_.InstanceName -like $pnpPrefix }
             foreach ($obj in $magicOnlyObj) {
                 if ($obj.EnableWakeOnMagicPacketOnly -eq $true) {
                     $wolConfigured = $true
-                } else {
+                }
+                else {
                     try {
                         Set-CimInstance -InputObject $obj -Property @{ EnableWakeOnMagicPacketOnly = $true } -ErrorAction Stop | Out-Null
                         $wolConfigured = $true
-                    } catch {}
+                    }
+                    catch {}
                 }
             }
-        } catch {}
+        }
+        catch {}
     }
 
     # 3. Advanced Driver Properties (Magic Packet & Shutdown Wake-on-LAN)
     try {
         $advProps = Get-NetAdapterAdvancedProperty -Name $adapter.Name -ErrorAction Stop |
-                    Where-Object {
-                        $_.RegistryKeyword -eq "*WakeOnMagicPacket" -or
-                        $_.DisplayName -match "Wake on Magic Packet|Shutdown Wake-On-Lan|Wake on Shutdown"
-                    }
+        Where-Object {
+            $_.RegistryKeyword -eq "*WakeOnMagicPacket" -or
+            $_.DisplayName -match "Wake on Magic Packet|Shutdown Wake-On-Lan|Wake on Shutdown"
+        }
         foreach ($prop in $advProps) {
             if ($prop.RegistryValue -contains "1") {
                 $wolConfigured = $true
-            } else {
+            }
+            else {
                 try {
                     Set-NetAdapterAdvancedProperty -Name $adapter.Name -RegistryKeyword $prop.RegistryKeyword -RegistryValue 1 -ErrorAction Stop | Out-Null
                     $wolConfigured = $true
-                } catch {}
+                }
+                catch {}
             }
         }
-    } catch {}
+    }
+    catch {}
 
     if (-not $wolConfigured) {
         Write-Warn "Could not apply Wake-on-LAN settings on '$($adapter.Name)' (continuing anyway)."
@@ -612,11 +651,13 @@ function Enable-WindowsWoL($adapter) {
     if (-not $info.IsWifi -and -not $info.IsUsb) {
         Write-Ok "Wake-on-LAN (Magic Packet Only) enabled on '$($adapter.Name)' [Ethernet]."
         $summary = "Enabled (Ethernet WoL)"
-    } elseif ($info.IsWifi -and -not $info.IsUsb) {
+    }
+    elseif ($info.IsWifi -and -not $info.IsUsb) {
         Write-Ok "Wake-on-Wireless-LAN (Magic Packet Only) enabled on '$($adapter.Name)' [Built-in / PCIe Wi-Fi]."
         Write-Info "Note: WoWLAN works reliably from Sleep (S3); waking from full Shutdown (S5) depends on BIOS/motherboard support."
         $summary = "Enabled (WoWLAN - S3/BIOS-dependent S5)"
-    } else {
+    }
+    else {
         Write-Ok "Wake (Magic Packet Only) enabled on '$($adapter.Name)' [$($info.Label)]."
         Write-Info "Note: USB adapters usually support waking from Sleep (S3) if USB wake is enabled in BIOS; full Shutdown (S5) is rarely supported on consumer USB dongles."
         $summary = "Enabled ($($info.Label) - typically Sleep/S3)"
@@ -629,11 +670,13 @@ function Enable-WindowsWoL($adapter) {
             try {
                 Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power" -Name HiberbootEnabled -Value 0 -ErrorAction Stop
                 Write-Ok "Fast Startup disabled."
-            } catch {
+            }
+            catch {
                 Write-Warn "Could not disable Fast Startup automatically."
             }
         }
-    } else {
+    }
+    else {
         Write-Ok "Windows Fast Startup is already disabled (WoL friendly)."
     }
 
@@ -641,6 +684,10 @@ function Enable-WindowsWoL($adapter) {
 }
 
 function Option-Install {
+    if (-not (Test-SafeInstallDir $InstallDir)) {
+        Write-Err "Unsafe install directory detected (unexpected owner or symlink/junction). Remove it manually before continuing."
+        return
+    }
     Write-Host ""
     Write-Host "=== Option 1: Full Setup & Installation ===" -ForegroundColor White
 
@@ -657,10 +704,10 @@ function Option-Install {
     $defaultAdapter = Get-DefaultAdapter
     Write-Info "Available active network adapters:"
     for ($i = 0; $i -lt $upAdapters.Count; $i++) {
-        $a      = $upAdapters[$i]
-        $aInfo  = Get-AdapterInfo $a
-        $ip     = Get-AdapterIPv4 $a.ifIndex
-        $mac    = Format-Mac $a.MacAddress
+        $a = $upAdapters[$i]
+        $aInfo = Get-AdapterInfo $a
+        $ip = Get-AdapterIPv4 $a.ifIndex
+        $mac = Format-Mac $a.MacAddress
         $marker = if ($defaultAdapter -and $a.Name -eq $defaultAdapter.Name) { " (Default)" } else { "" }
         Write-Host "  [$($i + 1)] $($a.Name) [$($aInfo.Label)] - IP: $ip | MAC: $mac$marker"
     }
@@ -670,22 +717,24 @@ function Option-Install {
         $inputIdx = Read-Host "Select adapter number [Enter for Default]"
         if ([string]::IsNullOrWhiteSpace($inputIdx)) {
             $selectedAdapter = if ($defaultAdapter) { $defaultAdapter } else { $upAdapters[0] }
-        } elseif ($inputIdx -match '^\d+$' -and [int]$inputIdx -ge 1 -and [int]$inputIdx -le $upAdapters.Count) {
+        }
+        elseif ($inputIdx -match '^\d+$' -and [int]$inputIdx -ge 1 -and [int]$inputIdx -le $upAdapters.Count) {
             $selectedAdapter = $upAdapters[[int]$inputIdx - 1]
-        } else {
+        }
+        else {
             Write-Err "Invalid selection. Enter a number between 1 and $($upAdapters.Count)."
         }
     }
 
     $selectedInfo = Get-AdapterInfo $selectedAdapter
-    $localIp      = Get-AdapterIPv4 $selectedAdapter.ifIndex
-    $macAddr      = Format-Mac $selectedAdapter.MacAddress
+    $localIp = Get-AdapterIPv4 $selectedAdapter.ifIndex
+    $macAddr = Format-Mac $selectedAdapter.MacAddress
 
     # 2. Choose & Validate Port
-    $existingCfg     = Get-Config
+    $existingCfg = Get-Config
     $agentWasRunning = Test-AgentRunning
-    $existingPort    = if ($existingCfg -and $existingCfg.port) { [int]$existingCfg.port } else { 0 }
-    $defaultPort     = if ($existingPort -gt 0) { $existingPort } else { 8888 }
+    $existingPort = if ($existingCfg -and $existingCfg.port) { [int]$existingCfg.port } else { 0 }
+    $defaultPort = if ($existingPort -gt 0) { $existingPort } else { 8888 }
 
     $port = 0
     while ($true) {
@@ -706,7 +755,8 @@ function Option-Install {
         if (Test-PortFree $port) {
             Write-Ok "Port $port is available."
             break
-        } else {
+        }
+        else {
             Write-Err "Port $port is ALREADY IN USE by another application!"
             $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($conn) {
@@ -718,7 +768,21 @@ function Option-Install {
     }
 
     # 3. Optional PIN (warn clearly if left empty)
-    $token = Read-Host "Optional PIN/Token (press Enter for NO PIN)"
+    $token = ""
+    while ($true) {
+        $token = Read-Host "Optional PIN/Token (press Enter for NO PIN)"
+        if ([string]::IsNullOrEmpty($token)) {
+            break
+        }
+        if (-not ($token -cmatch '^[\x21-\x7E]{4,64}$')) {
+            Write-Err "PIN must be 4-64 printable ASCII characters with no spaces."
+            continue
+        }
+        if ($token.Length -lt 6) {
+            Write-Warn "PIN is shorter than 6 characters. At least 6 characters is recommended for stronger brute-force protection."
+        }
+        break
+    }
     if ([string]::IsNullOrEmpty($token)) {
         Write-Warn "NO PIN is set: anyone on your network who can reach port $port can power off or reboot this machine."
         Write-Warn "Using a PIN is strongly recommended (you can add one later with option 2)."
@@ -730,21 +794,21 @@ function Option-Install {
     # 5. Stop previous instance, write files & lock ACL permissions
     Stop-AgentCleanly
     Save-Config ([ordered]@{
-        port      = $port
-        token     = $token
-        interface = $selectedAdapter.Name
-        mac       = $macAddr
-    })
+            port      = $port
+            token     = $token
+            interface = $selectedAdapter.Name
+            mac       = $macAddr
+        })
     Write-AgentScript
 
     # 6. Register Startup Scheduled Task (SYSTEM, Hidden, No Timeout, Full PowerShell Path)
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
-    $psExe  = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    $psExe = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
     $action = New-ScheduledTaskAction -Execute $psExe `
         -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$AgentScript`""
-    $trigger   = New-ScheduledTaskTrigger -AtStartup
+    $trigger = New-ScheduledTaskTrigger -AtStartup
     $principal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-    $settings  = New-ScheduledTaskSettingsSet `
+    $settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
         -StartWhenAvailable `
@@ -755,7 +819,8 @@ function Option-Install {
     try {
         Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
         Write-Ok "Background startup task '$TaskName' registered."
-    } catch {
+    }
+    catch {
         Write-Err "Failed to register Scheduled Task: $_"
         return
     }
@@ -767,7 +832,8 @@ function Option-Install {
             -Direction Inbound -Protocol TCP -LocalPort $port `
             -RemoteAddress LocalSubnet -Action Allow | Out-Null
         Write-Ok "Windows Firewall rule added for TCP port $port (Local LAN only)."
-    } catch {
+    }
+    catch {
         Write-Warn "Could not add Windows Firewall rule automatically. Allow TCP port $port manually."
     }
 
@@ -796,6 +862,10 @@ function Option-Install {
 }
 
 function Option-ChangePin {
+    if (-not (Test-SafeInstallDir $InstallDir)) {
+        Write-Err "Unsafe install directory detected (unexpected owner or symlink/junction). Remove it manually before continuing."
+        return
+    }
     Write-Host ""
     Write-Host "=== Option 2: Change / Remove PIN ===" -ForegroundColor White
     if (-not (Test-Installed)) {
@@ -816,17 +886,31 @@ function Option-ChangePin {
     $currentLabel = if ([string]::IsNullOrEmpty($cfg.token)) { "Disabled (None)" } else { "Enabled" }
     Write-Info "Current PIN status: $currentLabel"
 
-    $newToken = Read-Host "Enter new PIN (leave empty and press Enter to REMOVE PIN)"
+    $newToken = ""
+    while ($true) {
+        $newToken = Read-Host "Enter new PIN (leave empty and press Enter to REMOVE PIN)"
+        if ([string]::IsNullOrEmpty($newToken)) {
+            break
+        }
+        if (-not ($newToken -cmatch '^[\x21-\x7E]{4,64}$')) {
+            Write-Err "PIN must be 4-64 printable ASCII characters with no spaces."
+            continue
+        }
+        if ($newToken.Length -lt 6) {
+            Write-Warn "PIN is shorter than 6 characters. At least 6 characters is recommended for stronger brute-force protection."
+        }
+        break
+    }
     if ([string]::IsNullOrEmpty($newToken)) {
         Write-Warn "NO PIN will be set: anyone on your network who can reach the agent port can power off or reboot this machine."
     }
 
     Save-Config ([ordered]@{
-        port      = [int]$cfg.port
-        token     = $newToken
-        interface = [string]$cfg.interface
-        mac       = [string]$cfg.mac
-    })
+            port      = [int]$cfg.port
+            token     = $newToken
+            interface = [string]$cfg.interface
+            mac       = [string]$cfg.mac
+        })
 
     Stop-AgentCleanly
     Start-ScheduledTask -TaskName $TaskName
@@ -834,10 +918,12 @@ function Option-ChangePin {
     if (Wait-AgentReady -port ([int]$cfg.port)) {
         if ([string]::IsNullOrEmpty($newToken)) {
             Write-Ok "PIN removed (authentication disabled) and agent restarted."
-        } else {
+        }
+        else {
             Write-Ok "PIN updated and agent restarted."
         }
-    } else {
+    }
+    else {
         Write-Err "Config updated, but agent failed to restart. Check '$LogFile'."
     }
 }
@@ -856,11 +942,11 @@ function Option-Status {
         return
     }
 
-    $running  = if (Test-AgentRunning) { "Running" } else { "Stopped" }
+    $running = if (Test-AgentRunning) { "Running" } else { "Stopped" }
     $pinLabel = if (-not [string]::IsNullOrEmpty($cfg.token)) { "Enabled" } else { "Disabled" }
-    $nic      = Get-NetAdapter -Name $cfg.interface -ErrorAction SilentlyContinue
-    $ip       = if ($nic) { Get-AdapterIPv4 $nic.ifIndex } else { "unknown" }
-    $typeLbl  = if ($nic) { (Get-AdapterInfo $nic).Label } else { "Unknown" }
+    $nic = Get-NetAdapter -Name $cfg.interface -ErrorAction SilentlyContinue
+    $ip = if ($nic) { Get-AdapterIPv4 $nic.ifIndex } else { "unknown" }
+    $typeLbl = if ($nic) { (Get-AdapterInfo $nic).Label } else { "Unknown" }
     $fastBoot = if (Test-FastStartupActive) { "Active (may block WoL after Start Menu shutdown)" } else { "Disabled (WoL friendly)" }
 
     $wolMagic = "Unknown"
@@ -868,7 +954,8 @@ function Option-Status {
         try {
             $pm = Get-NetAdapterPowerManagement -Name $nic.Name -ErrorAction SilentlyContinue
             if ($pm) { $wolMagic = "$($pm.WakeOnMagicPacket) (Pattern: $($pm.WakeOnPattern))" }
-        } catch {}
+        }
+        catch {}
     }
 
     Write-Host " Agent Status : $running"
@@ -882,6 +969,10 @@ function Option-Status {
 }
 
 function Option-Uninstall {
+    if (-not (Test-SafeInstallDir $InstallDir)) {
+        Write-Err "Unsafe install directory detected (unexpected owner or symlink/junction). Remove it manually before continuing."
+        return
+    }
     Write-Host ""
     Write-Host "=== Uninstall LanPower ===" -ForegroundColor White
     if (-not (Test-Installed) -and -not (Test-Path $InstallDir)) {

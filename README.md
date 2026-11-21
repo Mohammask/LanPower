@@ -49,7 +49,7 @@
 ## Features
 
 - **Native OS Agents (No Third-Party Packages):**
-  - **Linux:** Uses only Python 3's standard library and `systemd` (with optional `ethtool` for Wake-on-LAN persistence — no `pip` packages or external frameworks).
+  - **Linux:** Uses only Python 3.7+'s standard library and `systemd` (with optional `ethtool` for Wake-on-LAN persistence — no `pip` packages or external frameworks).
   - **Windows 10 / 11:** Pure built-in PowerShell, .NET, and Task Scheduler (no extra runtimes required).
 - **Full Power Control:** Wake-on-LAN (`Magic Packet`), Sleep / Suspend, Reboot, and Shutdown.
 - **Smart Interactive Installer:** Distinguishes physical vs. virtual network adapters, verifies port availability, configures persistent Wake-on-LAN (`ethtool` + NetworkManager on Linux; driver/WMI settings + Fast Startup check on Windows), and includes a clean uninstaller.
@@ -62,7 +62,7 @@
 ### 1. Install the Agent on Your PC / Server
 
 #### Linux (Ubuntu, Debian, Fedora, Arch, openSUSE)
-Requires `systemd` and `python3` (the installer can install `python3` and optional `ethtool` via your distro's package manager). Run as `root`:
+Requires `systemd` and `Python 3.7+` (the installer can install `python3` and optional `ethtool` via your distro's package manager). Run as `root`:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Mohammask/LanPower/main/linux/lanpower.sh | sudo bash
 ```
@@ -73,11 +73,13 @@ Run in an **Administrator** PowerShell window:
 irm https://raw.githubusercontent.com/Mohammask/LanPower/main/windows/lanpower.ps1 | iex
 ```
 
+> **Tip:** Feel free to inspect [`linux/lanpower.sh`](linux/lanpower.sh) and [`windows/lanpower.ps1`](windows/lanpower.ps1) directly before piping them to your shell.
+
 Both scripts launch an interactive CLI manager where you can install the background service, set or remove a PIN, inspect live status & WoL state, or completely uninstall.
 
 ### 2. Install the Android App
 
-Download the latest signed APK from **[GitHub Releases](https://github.com/Mohammask/LanPower/releases)** and install it on your Android device.
+Download the latest APK from **[GitHub Releases](https://github.com/Mohammask/LanPower/releases)** and install it on your Android device.
 
 ### 3. Scan & Control
 
@@ -91,10 +93,11 @@ LanPower is designed for safe operation on private local networks without unnece
 
 | Layer | Implementation |
 | --- | --- |
-| **LAN-Only Firewall** | Automatically scopes rules to your local subnet — UFW / `firewalld` on Linux (tracked and pruned on port change or uninstall) and Windows Defender Firewall (`LocalSubnet`). |
-| **Constant-Time PIN Auth** | Optional `X-Auth-Token` verification using `hmac.compare_digest` (Linux) and constant-time bitwise XOR comparison (Windows). |
+| **LAN-Only Firewall** | When an active firewall is detected (UFW / `firewalld` on Linux, Windows Defender Firewall on Windows), the installer scopes rules strictly to private LAN subnets (`RFC1918`, `100.64.0.0/10`, link-local) and skips auto-opening public IP subnets. Linux rules are tracked and cleanly pruned on port change or uninstall. |
+| **Constant-Time PIN Auth** | Optional `X-Auth-Token` verification using `hmac.compare_digest` (Linux) and constant-time bitwise XOR comparison (Windows). Requires 4–64 printable ASCII characters. Without a PIN, any device on the LAN can send power commands; the PIN travels in cleartext over local HTTP (see FAQ below). |
 | **Brute-Force Protection** | 5 consecutive failed PIN attempts lock out the source IP for **60 seconds** (`HTTP 429` with `retry_after` in JSON) while preserving active lockouts during cleanup. |
-| **Locked File Permissions** | Config files holding the PIN are written atomically with mode `0600` (directory `0700`) via environment variables on Linux, and restricted strictly to `SYSTEM` & `Administrators` via universal-SID `icacls` ACLs on Windows. |
+| **Browser CSRF Protection** | `POST` requests containing a browser `Origin` header are rejected with `HTTP 403` (`browser_requests_not_allowed`), blocking malicious web pages from triggering local power actions even when no PIN is configured. |
+| **Locked File Permissions** | Config files holding the PIN are written atomically with mode `0600` (directory `0700`) via environment variables on Linux, and restricted strictly to `SYSTEM` & `Administrators` via universal-SID `icacls` ACLs on Windows. On Windows, the installer also verifies the install directory is not a symlink/junction and is owned exclusively by `SYSTEM` or `Administrators`. |
 | **Local Scope** | Uses lightweight local HTTP intended **strictly for trusted private LANs**. Never port-forward or expose the agent port to the public internet. |
 
 ---
@@ -107,12 +110,13 @@ All endpoints speak JSON. When a PIN is configured, send it in the `X-Auth-Token
 | --- | --- | :---: | --- | --- |
 | `GET` | `/status` | No | Health check, hostname, MAC, interface, and auth flag | `{"service":"lan-power-agent","version":"1.0","status":"online","hostname":"PC","mac":"AA:BB:CC:11:22:33","interface":"eth0","auth_required":true}` |
 | `POST` | `/verify` | Yes | Verify PIN without triggering a power action | `{"ok":true,"authorized":true}` |
-| `POST` | `/sleep` | Yes | Suspend / sleep the host (`systemctl suspend` / `SetSuspendState`) | `{"ok":true,"action":"sleep"}` |
-| `POST` | `/reboot` | Yes | Reboot the operating system | `{"ok":true,"action":"reboot"}` |
-| `POST` | `/poweroff` | Yes | Shut down the operating system | `{"ok":true,"action":"poweroff"}` |
+| `POST` | `/sleep` | Yes | Suspend / sleep the host (`systemctl suspend` / `SetSuspendState`, may hibernate instead of sleep on Windows if Hibernation is enabled) | `{"ok":true,"action":"sleep"}` |
+| `POST` | `/reboot` | Yes | Reboot the operating system (uses `shutdown.exe /f` on Windows, forcing open apps to close) | `{"ok":true,"action":"reboot"}` |
+| `POST` | `/poweroff` | Yes | Shut down the operating system (uses `shutdown.exe /f` on Windows, forcing open apps to close) | `{"ok":true,"action":"poweroff"}` |
 
 **Error Status Codes:**
 - `401 Unauthorized` — Missing or invalid `X-Auth-Token` (`{"ok":false,"error":"unauthorized"}`)
+- `403 Forbidden` — Browser-originated `POST` request blocked (`{"ok":false,"error":"browser_requests_not_allowed"}`)
 - `429 Too Many Requests` — IP temporarily locked after 5 failed attempts (`{"ok":false,"error":"too_many_attempts","retry_after":60}`)
 - `404 Not Found` — Unknown endpoint
 
@@ -171,6 +175,19 @@ powercfg /lastwake
 <summary><b>How do I uninstall the agent completely?</b></summary>
 
 Re-run the installer script and choose **Option `4` (Uninstall)**. It cleanly stops and removes the background service/scheduled task, deletes all configuration files, and removes the firewall rules created by LanPower.
+
+</details>
+
+<details>
+<summary><b>Why does the agent use HTTP instead of HTTPS?</b></summary>
+
+LanPower is designed strictly for **trusted private LANs** with zero third-party packages and zero-config setup:
+
+1. **Private IPs & Certificates:** Public Certificate Authorities (like Let's Encrypt) cannot issue trusted certificates for local LAN IPs (`192.168.x.x`). Using self-signed certificates forces Android to either reject connections, bypass TLS verification (giving a false sense of security), or require manual certificate pinning for every device.
+2. **Zero-Friction Native Setup:** Generating and binding TLS certificates cleanly across Windows (`HttpListener` + certificate store + `netsh`) and Linux (`openssl`) introduces OS-specific fragility and complicates clean uninstallation.
+3. **Practical LAN Threat Model:** The agent is meant for networks you trust. When a firewall is active, the installer scopes the rule to your local private subnet, browser-originated `POST` requests (`Origin` header) are blocked (`HTTP 403`), and the optional PIN uses constant-time comparison with brute-force rate limiting (`HTTP 429`). Keep in mind that the PIN is sent unencrypted and does not change between requests, so anyone who can sniff your LAN (such as guests on the same Wi-Fi or a compromised IoT device) could read and replay it. The PIN protects against casual or accidental use, not against a hostile local network — for extra safety, put guests and IoT devices on an isolated network or VLAN.
+
+*Never port-forward or expose the agent port to the public internet. If you need remote control outside your home network, access your LAN through a VPN such as WireGuard or Tailscale.*
 
 </details>
 

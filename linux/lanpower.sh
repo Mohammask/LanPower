@@ -374,6 +374,10 @@ fw_all_recorded() {
   return 0
 }
 
+is_private_lan_subnet() {
+  python3 -c 'import ipaddress, sys; net = ipaddress.ip_network(sys.argv[1], strict=False); allowed = [ipaddress.ip_network(c) for c in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16")]; sys.exit(0 if net.version == 4 and any(net.subnet_of(a) for a in allowed) else 1)' "$1" 2>/dev/null
+}
+
 # configure_firewall IFACE PORT  - UFW / firewalld, LAN subnet(s) of IFACE only.
 configure_firewall() {
   local _iface="$1" _port="$2"
@@ -400,6 +404,10 @@ configure_firewall() {
   info "LAN subnet(s): $(printf '%s' "$_subnets" | tr '\n' ' ')"
   if confirm_yes "Allow TCP port $_port from the LAN subnet(s) only through $_name now?"; then
     for _s in $_subnets; do
+      if ! is_private_lan_subnet "$_s"; then
+        warn "Subnet $_s is not a private LAN subnet. Skipping automatic firewall rule."
+        continue
+      fi
       if fw_rule_add "$_key" "$_s" "$_port"; then
         fw_record "$_key" "$_s" "$_port"
         _added=$((_added + 1))
@@ -663,6 +671,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": "not_found"})
             return
 
+        if self.headers.get("Origin") is not None:
+            self.send_json(403, {"ok": False, "error": "browser_requests_not_allowed"})
+            return
+
         client_ip = self.client_address[0]
         if TOKEN:
             retry_after = get_lockout_remaining(client_ip)
@@ -721,6 +733,10 @@ option_install() {
     fi
   else
     success "python3 is already installed ($(python3 --version 2>&1))."
+  fi
+  if ! python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 7) else 1)' 2>/dev/null; then
+    err "Python 3.7+ is required (ThreadingHTTPServer is not available on older Python versions)."
+    return 1
   fi
   local PYTHON_BIN
   PYTHON_BIN=$(command -v python3)
@@ -847,10 +863,23 @@ option_install() {
 
   # 5. Optional PIN
   local TOKEN=""
-  if ! read_input "Optional PIN/Token (press Enter for NO PIN): " TOKEN; then
-    err "Input closed (EOF). Setup cancelled."
-    return
-  fi
+  while true; do
+    if ! read_input "Optional PIN/Token (press Enter for NO PIN): " TOKEN; then
+      err "Input closed (EOF). Setup cancelled."
+      return
+    fi
+    if [ -z "$TOKEN" ]; then
+      break
+    fi
+    if ! printf '%s' "$TOKEN" | LC_ALL=C grep -qE '^[!-~]{4,64}$'; then
+      err "PIN must be 4-64 printable ASCII characters with no spaces."
+      continue
+    fi
+    if [ "${#TOKEN}" -lt 6 ]; then
+      warn "PIN is shorter than 6 characters. At least 6 characters is recommended for stronger brute-force protection."
+    fi
+    break
+  done
   if [ -z "$TOKEN" ]; then
     warn "NO PIN is set: anyone on your network who can reach port $PORT can power off or reboot this machine."
     warn "Using a PIN is strongly recommended (you can add one later with option 2)."
@@ -996,10 +1025,23 @@ option_change_pin() {
   info "Current PIN status: $([ -n "$CURRENT_TOKEN" ] && echo "Enabled" || echo "Disabled (None)")"
 
   local NEW_TOKEN=""
-  if ! read_input "Enter new PIN (leave empty and press Enter to REMOVE PIN): " NEW_TOKEN; then
-    err "Input closed (EOF). PIN left unchanged."
-    return
-  fi
+  while true; do
+    if ! read_input "Enter new PIN (leave empty and press Enter to REMOVE PIN): " NEW_TOKEN; then
+      err "Input closed (EOF). PIN left unchanged."
+      return
+    fi
+    if [ -z "$NEW_TOKEN" ]; then
+      break
+    fi
+    if ! printf '%s' "$NEW_TOKEN" | LC_ALL=C grep -qE '^[!-~]{4,64}$'; then
+      err "PIN must be 4-64 printable ASCII characters with no spaces."
+      continue
+    fi
+    if [ "${#NEW_TOKEN}" -lt 6 ]; then
+      warn "PIN is shorter than 6 characters. At least 6 characters is recommended for stronger brute-force protection."
+    fi
+    break
+  done
   if [ -z "$NEW_TOKEN" ]; then
     warn "NO PIN will be set: anyone on your network who can reach the agent port can power off or reboot this machine."
   fi
