@@ -836,7 +836,7 @@ function Option-Install {
         Remove-NetFirewallRule -DisplayName $FirewallRule -ErrorAction SilentlyContinue
         New-NetFirewallRule -DisplayName $FirewallRule `
             -Direction Inbound -Protocol TCP -LocalPort $port `
-            -RemoteAddress LocalSubnet -Action Allow | Out-Null
+            -RemoteAddress LocalSubnet -Profile Private,Domain -Action Allow | Out-Null
         Write-Ok "Windows Firewall rule added for TCP port $port (Local LAN only)."
     }
     catch {
