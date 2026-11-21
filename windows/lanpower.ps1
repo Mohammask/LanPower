@@ -870,11 +870,21 @@ function Option-Install {
 
     $pinLabel = if ([string]::IsNullOrEmpty($token)) { "Disabled (None)" } else { "Enabled" }
 
+    $finalNetProf = Get-AdapterNetProfile $selectedAdapter.InterfaceIndex
+    $profileLabel = if ($null -eq $finalNetProf) {
+        "Unknown"
+    } elseif ($finalNetProf.NetworkCategory -eq 'Public') {
+        "Public (Warning: switch to Private for LAN access)"
+    } else {
+        "$($finalNetProf.NetworkCategory)"
+    }
+
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Green
     Write-Host " LanPower Setup Completed Successfully!" -ForegroundColor White
     Write-Host " Hostname : $env:COMPUTERNAME"
     Write-Host " Adapter  : $($selectedAdapter.Name) [$($selectedInfo.Label)]"
+    Write-Host " Net Profile: $profileLabel"
     Write-Host " IP       : $localIp"
     Write-Host " MAC      : $macAddr"
     Write-Host " Port     : $port"
